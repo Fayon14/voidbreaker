@@ -7,7 +7,7 @@
 // Player
 // ------------------------------------------------------------
 const Player = {
-  x: 0, y: 0, vx: 0, vy: 0, r: CFG.playerRadius,
+  x: 0, y: 0, vx: 0, vy: 0, kx: 0, ky: 0, r: CFG.playerRadius, rest: 0.2,
   hp: 100, maxHp: 100,
   aimX: 1, aimY: 0, aimAng: 0,
   fireCd: 0, dashCd: 0, dashing: 0, dashVX: 0, dashVY: 0,
@@ -63,13 +63,8 @@ const Player = {
       this.vx = damp(this.vx, ix * speed, dampK, dt);
       this.vy = damp(this.vy, iy * speed, dampK, dt);
     }
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-
-    // Clamp to arena and collide with obstacles.
-    this.x = clamp(this.x, this.r, CFG.arenaW - this.r);
-    this.y = clamp(this.y, this.r, CFG.arenaH - this.r);
-    World.collideCircle(this);
+    // Physics engine handles integration, walls and obstacle response.
+    Physics.integrate(this, dt, { substeps: 2, knockDecay: 6.0 });
 
     // Aim: mouse position or right stick.
     if (input.aiming) {
@@ -176,8 +171,8 @@ const Player = {
     // Muzzle flash + recoil kick.
     FX.spawn(this.x + Math.cos(this.aimAng) * 20, this.y + Math.sin(this.aimAng) * 20,
       { color: CFG.colors[w.color], size: 8, life: 0.08, type: 0 });
-    this.vx -= Math.cos(this.aimAng) * (w.knock || 60) * 0.35;
-    this.vy -= Math.sin(this.aimAng) * (w.knock || 60) * 0.35;
+    Physics.impulse(this, -Math.cos(this.aimAng) * (w.knock || 60) * 0.30,
+      -Math.sin(this.aimAng) * (w.knock || 60) * 0.30);
   },
 
   gainXp(v) {
@@ -210,10 +205,8 @@ const Player = {
     FX.hitStop(0.05);
     FX.burst(this.x, this.y, '#ff5c7a', 14, 220, 4, 0.4);
     if (sourceX !== undefined) {
-      // Knockback away from the source.
-      const a = ang(sourceX, sourceY, this.x, this.y);
-      this.vx += Math.cos(a) * 180;
-      this.vy += Math.sin(a) * 180;
+      // Knockback rides the physics impulse channel now.
+      Physics.knockFrom(this, sourceX, sourceY, 210);
     }
     if (this.hp <= 0) {
       if (this.stats.revives > 0) {
@@ -365,13 +358,14 @@ const Bullets = {
           b.vy = Math.sin(na) * sp;
         }
       }
+      const px = b.x, py = b.y;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       if (b.x < -40 || b.x > CFG.arenaW + 40 || b.y < -40 || b.y > CFG.arenaH + 40) {
         this.list.release(i);
         return;
       }
-      if (World.circleHitsObstacle(b.x, b.y, b.r)) {
+      if (World.segHitsObstacle(px, py, b.x, b.y, b.r)) {
         FX.burst(b.x, b.y, b.color, 4, 120, 3, 0.25);
         if (b.blast > 0 && b.team === 0) this.explode(b);
         this.list.release(i);
@@ -380,18 +374,18 @@ const Bullets = {
 
       if (b.team === 0) {
         // Player bullet vs enemies.
-        const q = this.hash.query(b.x, b.y, b.r + 34, this.near);
+        const q = this.hash.query((b.x + px) / 2, (b.y + py) / 2,
+          b.r + 34 + Math.hypot(b.vx, b.vy) * dt * 0.5, this.near);
         for (const e of q) {
           if (!e.alive) continue;
           if (b.hitSet && b.hitSet.has(e)) continue;
-          if (!circleHit(b.x, b.y, b.r, e.x, e.y, e.r)) continue;
+          if (!Physics.segCircle(px, py, b.x, b.y, e.x, e.y, e.r + b.r)) continue;
           if (e === Boss) Boss.damage(b.dmg, b.x, b.y);
           else Enemies.damage(e, b.dmg, b.x, b.y);
           // Knockback.
           const ka = Math.atan2(b.vy, b.vx);
           const kr = (b.knock || 60) / (e.mass || 1);
-          e.vx += Math.cos(ka) * kr;
-          e.vy += Math.sin(ka) * kr;
+          Physics.impulse(e, Math.cos(ka) * kr, Math.sin(ka) * kr);
           FX.burst(b.x, b.y, b.color, 5, 160, 3, 0.3);
           if (b.pierce > 0) {
             b.pierce--;
@@ -404,7 +398,7 @@ const Bullets = {
         }
       } else {
         // Enemy bullet vs player.
-        if (circleHit(b.x, b.y, b.r, Player.x, Player.y, Player.r)) {
+        if (Physics.segCircle(px, py, b.x, b.y, Player.x, Player.y, Player.r + b.r)) {
           Player.takeDamage(b.dmg, b.x, b.y);
           FX.burst(b.x, b.y, CFG.colors.ebullet, 6, 140, 3, 0.3);
           this.list.release(i);
@@ -505,9 +499,7 @@ const Enemies = {
     if (amount >= 25) { AudioSys.crit(); FX.text(e.x, e.y - e.r - 8, Math.round(amount), CFG.colors.gold, 15); }
     else { AudioSys.hit(); }
     if (srcX !== undefined && e.type !== 'bomber') {
-      const a = ang(srcX, srcY, e.x, e.y);
-      e.vx += Math.cos(a) * 40 / (e.mass || 1);
-      e.vy += Math.sin(a) * 40 / (e.mass || 1);
+      Physics.knockFrom(e, srcX, srcY, 70 / (e.mass || 1));
     }
     if (e.hp <= 0) this.kill(e);
   },
@@ -579,11 +571,7 @@ const Enemies = {
       }
 
       AI.update(e, dt * spdMult);
-      e.x += e.vx * dt;
-      e.y += e.vy * dt;
-      e.x = clamp(e.x, e.r, CFG.arenaW - e.r);
-      e.y = clamp(e.y, e.r, CFG.arenaH - e.r);
-      World.collideCircle(e);
+      Physics.integrate(e, dt, { substeps: 2, knockDecay: 5.0 });
 
       // Touch damage to the player.
       const def = ENEMY_TYPES[e.type];
@@ -596,8 +584,7 @@ const Enemies = {
         }
         // Bounce apart so enemies don't sit inside the player.
         const a = ang(Player.x, Player.y, e.x, e.y);
-        e.vx += Math.cos(a) * 120;
-        e.vy += Math.sin(a) * 120;
+        Physics.impulse(e, Math.cos(a) * 150, Math.sin(a) * 150);
       }
 
       // Bombers arm and detonate.
@@ -621,6 +608,8 @@ const Enemies = {
         }
       }
     });
+    // Physics crowd separation so enemies never stack into one blob.
+    Physics.resolvePairs(this.list.items, this.list.count);
   },
 
   draw(ctx) {
@@ -730,7 +719,7 @@ const Boss = {
   hp: 1, maxHp: 1, name: '', color: '#fff',
   def: null, phase: 1, t: 0, flash: 0,
   ringT: 0, dashT: 0, dashWind: 0, summonT: 0, spawnT: 0,
-  score: 0, xp: 0, damage: 20, mass: 10, alive: false,
+  score: 0, xp: 0, damage: 20, mass: 10, rest: 0.08, alive: false,
 
   spawn(tier, scale) {
     const idx = (tier - 1) % BOSSES.length;
@@ -765,8 +754,7 @@ const Boss = {
     if (srcX !== undefined) {
       // Bosses barely budge.
       const a = ang(srcX, srcY, this.x, this.y);
-      this.vx += Math.cos(a) * 8;
-      this.vy += Math.sin(a) * 8;
+      Physics.impulse(this, Math.cos(a) * 8, Math.sin(a) * 8);
     }
     const frac = this.hp / this.maxHp;
     const def = this.def;
@@ -813,10 +801,7 @@ const Boss = {
     const sp = this.speed * (1 + (this.phase - 1) * 0.25);
     this.vx = damp(this.vx, Math.cos(a) * sp, 2.2, dt);
     this.vy = damp(this.vy, Math.sin(a) * sp, 2.2, dt);
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-    this.x = clamp(this.x, this.r, CFG.arenaW - this.r);
-    this.y = clamp(this.y, this.r, CFG.arenaH - this.r);
+    Physics.integrate(this, dt, { substeps: 2, knockDecay: 4.0 });
 
     // Ring bursts on a timer; faster per phase.
     this.ringT -= dt;

@@ -1,17 +1,18 @@
 // ============================================================
-// Game: state machine, loop, input, glue.
+// Game v1.1: state machine, loop, input, glue.
+// Every screen change now runs through the transition driver.
 // ============================================================
 let canvas = null;
 let ctx = null;
 let DPR = 1;
 
 const Game = {
-  state: 'boot',   // boot intro menu shop howto settings play levelup pause gameover
+  state: 'boot',   // boot intro menu shop howto settings devlog play levelup pause gameover
   time: 0,
   runSeed: 1,
   waveScale: { hp: 1, dmg: 1, speed: 1 },
   lastRun: null,
-  gameOverT: 0,
+  settingsFrom: 'menu',
 
   input: {
     keys: new Set(),
@@ -26,6 +27,7 @@ const Game = {
     canvas = document.getElementById('game');
     ctx = canvas.getContext('2d');
     Save.load();
+    Physics.init();
     FX.init();
     Bullets.init();
     Enemies.init();
@@ -41,8 +43,14 @@ const Game = {
     canvas.addEventListener('touchstart', e => this.onTouch(e, true), { passive: false });
     canvas.addEventListener('touchmove', e => this.onTouch(e, false), { passive: false });
     canvas.addEventListener('touchend', e => this.onTouch(e, false), { passive: false });
+    // Wheel scrolls the shop and the dev log.
+    window.addEventListener('wheel', e => {
+      if (this.state === 'shop') UI.shopScroll += e.deltaY;
+      else if (this.state === 'devlog') UI.devlogScroll += e.deltaY;
+    }, { passive: true });
 
-    Save.data.seenIntro ? this.goMenu() : this.startIntro();
+    // The intro plays on every launch. Skip any time.
+    this.startIntro();
     requestAnimationFrame(t => this.frame(t));
   },
 
@@ -57,22 +65,30 @@ const Game = {
   },
 
   // ---- state transitions --------------------------------------
+  setState(s) {
+    this.state = s;
+    UI.enterT = 0;
+    UI.hoverIndex = -1;
+    if (s === 'shop') UI.shopScroll = 0;
+    if (s === 'devlog') UI.devlogScroll = 0;
+  },
+
   startIntro() {
-    this.state = 'intro';
+    this.setState('intro');
     UI.startIntro();
   },
 
   goMenu() {
-    this.state = 'menu';
-    UI.hoverIndex = -1;
+    Trans.go('menu');
     AudioSys.stopMusic();
     Save.data.seenIntro = true;
     Save.save();
   },
 
-  goShop() { this.state = 'shop'; UI.hoverIndex = -1; },
-  goHowTo() { this.state = 'howto'; },
-  goSettings() { this.state = 'settings'; UI.hoverIndex = -1; },
+  goShop() { Trans.go('shop'); },
+  goHowTo() { Trans.go('howto'); },
+  goSettings() { this.settingsFrom = this.state === 'pause' ? 'pause' : 'menu'; Trans.go('settings'); },
+  goDevLog() { Trans.go('devlog'); },
 
   newRun() {
     this.runSeed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
@@ -88,19 +104,18 @@ const Game = {
     Waves.startWave(1);
     AudioSys.init();
     AudioSys.startMusic(this.runSeed);
-    this.state = 'play';
+    this.setState('play');
+    FX.flash('#4ef1ff', 0.25);
   },
 
   // ---- wave events --------------------------------------------
   onWaveClear() {
     Player.score += CFG.waveClearBonus * Waves.wave;
     const next = Waves.wave + 1;
-    // Short breather, then next wave.
     Waves.startWave(next);
     if (Waves.bossWave) {
       Boss.spawn(Math.floor(next / CFG.bossEvery), waveScale(next));
     }
-    // Heal a little between waves.
     Player.hp = Math.min(Player.maxHp, Player.hp + 10);
   },
 
@@ -113,7 +128,6 @@ const Game = {
   },
 
   onLevelUp() {
-    // Roll three distinct affordable upgrades.
     const owned = Player._upgradeCounts || (Player._upgradeCounts = {});
     const avail = UPGRADES.filter(u => (owned[u.id] || 0) < u.max);
     const choices = [];
@@ -124,9 +138,7 @@ const Game = {
     }
     this.levelChoices = choices;
     UI.levelChoices = choices;
-    UI.levelT = 0;
-    UI.hoverIndex = -1;
-    this.state = 'levelup';
+    this.setState('levelup');
     AudioSys.levelup();
     FX.ring(Player.x, Player.y, CFG.colors.xp, 120, 0.6, 4);
   },
@@ -143,7 +155,8 @@ const Game = {
     if (u.id === 'drone') {
       Player.drones.push({ ang: rand(0, TAU), cd: 0 });
     }
-    this.state = 'play';
+    this.setState('play');
+    FX.flash('#9d6bff', 0.12);
   },
 
   onPlayerDeath() {
@@ -159,8 +172,7 @@ const Game = {
       level: Player.level, credits,
       newBest: Player.score >= Save.data.best && Player.score > 0,
     };
-    this.gameOverT = 0;
-    this.state = 'gameover';
+    this.setState('gameover');
   },
 
   abandonRun() {
@@ -177,15 +189,17 @@ const Game = {
       this.input.keys.add(k);
       AudioSys.init();
       if (this.state === 'intro') { this.goMenu(); return; }
+      if (Trans.closing()) { this.updateKeyAxes(); return; }
       if (this.state === 'levelup' && ['1', '2', '3'].includes(k)) {
         this.pickUpgrade(parseInt(k) - 1);
         return;
       }
       if (k === 'enter' && this.state === 'menu') { this.newRun(); return; }
       if (k === 'p' || k === 'escape') {
-        if (this.state === 'play') { this.state = 'pause'; UI.hoverIndex = -1; }
-        else if (this.state === 'pause') this.state = 'play';
-        else if (['shop', 'howto', 'settings'].includes(this.state)) this.goMenu();
+        if (this.state === 'play') Trans.go('pause');
+        else if (this.state === 'pause') Trans.go('play');
+        else if (this.state === 'settings') Trans.go(this.settingsFrom === 'pause' ? 'pause' : 'menu');
+        else if (['shop', 'howto', 'devlog'].includes(this.state)) this.goMenu();
         return;
       }
       if (k === ' ') {
@@ -217,7 +231,6 @@ const Game = {
   },
 
   toWorldCoords(px, py) {
-    // Convert screen to world using the camera transform.
     return Camera.screenToWorld(px, py);
   },
 
@@ -241,13 +254,16 @@ const Game = {
 
   handleClick(x, y, down) {
     if (!down) return;
+    if (Trans.closing()) return;
     const st = this.state;
     if (st === 'menu') {
-      const idx = UI.menuItems.findIndex((it, i) => this.inRect(x, y, UI.vw() / 2 - 170, UI.vh() * 0.46 + i * 52 - 18, 340, 34));
+      const my = UI.vh() * 0.40;
+      const idx = UI.menuItems.findIndex((it, i) => this.inRect(x, y, UI.vw() / 2 - 170, my + i * 50 - 18, 340, 34));
       if (idx === 0) this.newRun();
       else if (idx === 1) this.goShop();
       else if (idx === 2) this.goHowTo();
-      else if (idx === 3) this.goSettings();
+      else if (idx === 3) this.goDevLog();
+      else if (idx === 4) this.goSettings();
       AudioSys.click();
     } else if (st === 'levelup') {
       const w = UI.vw(), h = UI.vh();
@@ -262,10 +278,11 @@ const Game = {
         }
       }
     } else if (st === 'pause') {
-      const h = UI.vh();
+      const r = UI.pauseRect;
+      if (!r) return;
       for (let i = 0; i < 3; i++) {
-        if (this.inRect(x, y, UI.vw() / 2 - 120, h * 0.48 + i * 46 - 16, 240, 32)) {
-          if (i === 0) this.state = 'play';
+        if (this.inRect(x, y, r.x, r.y + i * r.rowH - 16, r.w, 32)) {
+          if (i === 0) Trans.go('play');
           else if (i === 1) this.goSettings();
           else this.abandonRun();
           AudioSys.click();
@@ -284,10 +301,13 @@ const Game = {
         }
       }
     } else if (st === 'shop') {
-      const w = UI.vw();
-      const rowH = 64, x0 = w / 2 - 300, y0 = 110;
+      const r = UI.shopRect;
+      if (!r) return;
+      let handled = false;
       for (let i = 0; i < META_SHOP.length; i++) {
-        if (this.inRect(x, y, x0, y0 + i * rowH, 600, rowH - 8)) {
+        const iy = r.top + i * r.rowH - UI.shopScroll;
+        if (this.inRect(x, y, r.x0, iy, r.pw, r.rowH - 8)) {
+          handled = true;
           const it = META_SHOP[i];
           const lvl = Save.metaLevel(it.id);
           const cost = Math.round(it.cost * Math.pow(it.scale, lvl));
@@ -301,15 +321,15 @@ const Game = {
           } else {
             AudioSys.click();
           }
-          return;
+          break;
         }
       }
-      this.goMenu();
+      if (!handled) this.goMenu();
     } else if (st === 'settings') {
       const h = UI.vh(), s = Save.data.settings;
       const rows = 6;
       for (let i = 0; i < rows; i++) {
-        if (this.inRect(x, y, UI.vw() / 2 - 180, h * 0.34 + i * 50 - 16, 360, 32)) {
+        if (this.inRect(x, y, UI.vw() / 2 - 180, h * 0.32 + i * 50 - 16, 360, 32)) {
           if (i === 0) s.sfx = nextVol(s.sfx);
           if (i === 1) s.music = nextVol(s.music);
           if (i === 2) s.shake = s.shake > 0 ? 0 : 1;
@@ -318,7 +338,7 @@ const Game = {
             if (this._resetArm) { localStorage.removeItem(CFG.saveKey); Save.load(); this._resetArm = false; }
             else { this._resetArm = true; }
           }
-          if (i === 5) this.goMenu();
+          if (i === 5) Trans.go(this.settingsFrom === 'pause' ? 'pause' : 'menu');
           AudioSys.applySettings();
           Save.save();
           AudioSys.click();
@@ -327,6 +347,8 @@ const Game = {
       }
       this.goMenu();
     } else if (st === 'howto') {
+      this.goMenu();
+    } else if (st === 'devlog') {
       this.goMenu();
     } else if (st === 'play') {
       this.input.firing = true;
@@ -369,9 +391,8 @@ const Game = {
         }
         if (t.identifier === inp.aimId) {
           const dx = t.clientX - inp.aimOx, dy = t.clientY - inp.aimOy;
-          const wx = this.toWorldCoords(inp.aimOx, inp.aimOy);
           if (Math.hypot(dx, dy) > 14) {
-            inp.aiming = false; // stick drives aim direction via player auto-aim override
+            inp.aiming = false;
             Player.aimAng = Math.atan2(dy, dx);
           }
         }
@@ -384,9 +405,6 @@ const Game = {
     }
     if (inp.aimId !== null && !remaining.has(inp.aimId)) {
       inp.aimId = null; inp.firing = false;
-    }
-    if (start && e.touches.length === 0 && this.state === 'play') {
-      // double tap right side to dash? keep simple: two-finger tap dashes
     }
     if (e.touches.length >= 3 && this.state === 'play') this.input.dash = true;
   },
@@ -401,6 +419,7 @@ const Game = {
     dt = Math.min(dt, 1 / 20);
 
     this.time += dt;
+    Trans.update(dt);
     this.update(dt);
     this.render(dt);
   },
@@ -412,7 +431,8 @@ const Game = {
       case 'intro':
         break;
 
-      case 'menu': case 'gameover': case 'shop': case 'howto': case 'settings': {
+      case 'menu': case 'gameover': case 'shop': case 'howto':
+      case 'settings': case 'devlog': {
         // Idle FX continue so menus feel alive.
         FX.update(dt);
         break;
@@ -422,7 +442,6 @@ const Game = {
         // Hit stop: freeze the sim briefly, keep rendering.
         if (FX.hitStopT > 0) { FX.update(dt); break; }
 
-        // Mouse aim into world space.
         if (inp.aiming && !inp.touch) {
           const wpt = this.toWorldCoords(inp.aimX, inp.aimY);
           Player.update(dt, {
@@ -459,55 +478,68 @@ const Game = {
     }
   },
 
-  render(dt) {
-    const w = UI.vw(), h = UI.vh();
-    const st = this.state;
-
-    if (st === 'intro') { UI.drawIntro(dt); return; }
-    if (st === 'menu') { UI.drawMenu(dt); return; }
-    if (st === 'shop') { UI.drawShop(); return; }
-    if (st === 'howto') { UI.drawHowTo(); return; }
-    if (st === 'settings') { UI.drawSettings(); return; }
-
-    // World rendering with camera transform for play states.
-    FX.updateShake();
-    const cam = Camera.apply(ctx, w, h);
-
-    if (World.bgCanvas) ctx.drawImage(World.bgCanvas, 0, 0);
-    World.drawObstacles(ctx);
-    Pickups.draw(ctx);
-    Enemies.draw(ctx);
-    Boss.draw(ctx);
-    Player.draw(ctx);
-    Bullets.draw(ctx);
-    FX.draw(ctx);
-
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-    // Vignette when hurt.
-    if (FX.vignette > 0 || Player.hp / Player.maxHp < 0.3) {
-      const v = Math.max(FX.vignette, Player.hp / Player.maxHp < 0.3 ? 0.35 : 0);
-      const g = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, h * 0.75);
-      g.addColorStop(0, 'rgba(255,45,77,0)');
-      g.addColorStop(1, 'rgba(255,45,77,' + (v * 0.5).toFixed(2) + ')');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-    }
-
-    if (st === 'play' || st === 'levelup' || st === 'pause' || st === 'gameover') {
-      UI.drawHUD();
-    }
-    if (st === 'levelup') UI.drawLevelUp(dt);
-    if (st === 'pause') UI.drawPause();
-    if (st === 'gameover') UI.drawGameOver(dt);
-
-    // White flash overlay.
+  drawFlash(w, h) {
     if (FX.flashT > 0) {
       ctx.globalAlpha = Math.min(0.7, FX.flashT * 3);
       ctx.fillStyle = FX.flashColor;
       ctx.fillRect(0, 0, w, h);
       ctx.globalAlpha = 1;
     }
+  },
+
+  render(dt) {
+    const w = UI.vw(), h = UI.vh();
+    const st = this.state;
+
+    if (st === 'intro') {
+      UI.drawIntro(dt);
+      this.drawFlash(w, h);
+      Trans.draw();
+      return;
+    }
+
+    if (st === 'menu') { UI.drawMenu(dt); }
+    else if (st === 'shop') { UI.drawShop(dt); }
+    else if (st === 'howto') { UI.drawHowTo(dt); }
+    else if (st === 'settings') { UI.drawSettings(dt); }
+    else if (st === 'devlog') { UI.drawDevLog(dt); }
+    else {
+      // World rendering with camera transform for play states.
+      FX.updateShake();
+      Camera.apply(ctx, w, h);
+
+      if (World.bgCanvas) ctx.drawImage(World.bgCanvas, 0, 0);
+      World.drawObstacles(ctx);
+      Pickups.draw(ctx);
+      Enemies.draw(ctx);
+      Boss.draw(ctx);
+      Player.draw(ctx);
+      Bullets.draw(ctx);
+      FX.draw(ctx);
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      // Vignette when hurt.
+      if (FX.vignette > 0 || Player.hp / Player.maxHp < 0.3) {
+        const v = Math.max(FX.vignette, Player.hp / Player.maxHp < 0.3 ? 0.35 : 0);
+        const g = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, h * 0.75);
+        g.addColorStop(0, 'rgba(255,45,77,0)');
+        g.addColorStop(1, 'rgba(255,45,77,' + (v * 0.5).toFixed(2) + ')');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (st === 'play' || st === 'levelup' || st === 'pause' || st === 'gameover') {
+        UI.drawHUD();
+      }
+      if (st === 'levelup') UI.drawLevelUp(dt);
+      if (st === 'pause') UI.drawPause(dt);
+      if (st === 'gameover') UI.drawGameOver(dt);
+    }
+
+    // Flash and transition overlays cover every screen now.
+    this.drawFlash(w, h);
+    Trans.draw();
   },
 };
 
@@ -523,7 +555,6 @@ const Camera = {
     const ty = Player.y - h / 2;
     this.x = damp(this.x, tx, 6, dt);
     this.y = damp(this.y, ty, 6, dt);
-    // Look-ahead toward the aim.
     this.x = clamp(this.x, 0, Math.max(0, CFG.arenaW - w));
     this.y = clamp(this.y, 0, Math.max(0, CFG.arenaH - h));
   },

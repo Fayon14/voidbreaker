@@ -51,6 +51,15 @@ const World = {
     return false;
   },
 
+  // Swept test: does the segment from (x0,y0) to (x1,y1) clip any box,
+  // for a circle of radius r? Used by fast projectiles.
+  segHitsObstacle(x0, y0, x1, y1, r) {
+    for (const o of this.obstacles) {
+      if (Physics.segRect(x0, y0, x1, y1, o.x, o.y, o.w, o.h, r)) return true;
+    }
+    return false;
+  },
+
   renderBackground() {
     const c = document.createElement('canvas');
     c.width = CFG.arenaW;

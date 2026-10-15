@@ -5,7 +5,7 @@
 'use strict';
 
 const CFG = {
-  version: '1.0.0',
+  version: '1.1.0',
   saveKey: 'voidbreaker_save_v1',
 
   // Arena (world units). Camera follows the player inside these bounds.
@@ -304,3 +304,27 @@ function waveScale(n) {
     speed: 1 + Math.min(0.55, (n - 1) * 0.02),
   };
 }
+
+// ------------------------------------------------------------
+// Dev log: shipped changes, newest first. Rendered in-game.
+// ------------------------------------------------------------
+const CHANGELOG = [
+  { v: '1.1.0', title: 'MOTION + PHYSICS OVERHAUL', entries: [
+    'Whole new physics engine: every ship, enemy and boss now runs on real acceleration, mass and bounce. Knockback rides its own impulse channel, obstacles push back, and fast shots sweep their path so they can no longer pass through small targets.',
+    'Crowds separate properly: enemies physically shove each other apart instead of stacking into one blob.',
+    'Every screen animates in and out: menus slide and fade, cards pop, and closing a screen gets the same smooth treatment.',
+    'New cinematic intro that plays on every launch: warp starfield, the void core forming and shattering, the title assembling letter by letter. Skip any time.',
+    'HUD rebuild: level, weapon and dash meter each get their own row. No more overlap.',
+    'The upgrades page resizes to your screen and scrolls, so text never gets cut off at the bottom.',
+    'Damage flashes and screen effects now show on menus too.',
+    'Settings from the pause menu now returns to the pause menu instead of dropping your run.',
+    'Added this dev log.',
+  ]},
+  { v: '1.0.0', title: 'FIRST RELEASE', entries: [
+    'Wave survival roguelite: 9 enemy archetypes, 5 elite modifiers, bosses every 5 waves with phases and telegraphed attacks.',
+    '4 weapons, 20 in-run upgrades, 8 permanent upgrades in the shop.',
+    'Fully procedural synthwave soundtrack and sound effects. No audio files.',
+    'Seeded arena generation, minimap, gem magnetism, touch controls.',
+    'Save data with best-run tracking, plus settings for volume, shake and reduced motion.',
+  ]},
+];
