@@ -857,6 +857,179 @@ const UI = {
     drawText(ctx, 'EVERYTHING WE SHIPPED', w / 2, 60 + t0.oy, 12, CFG.colors.uiDim, 'center', false);
     ctx.globalAlpha = 1;
 
+    // Panel geometry.
+    const pw = Math.min(640, w - 24);
+    const x0 = (w - pw) / 2;
+    const top = 88;
+    const bottom = h - 56;
+    const viewH = Math.max(120, bottom - top);
+
+    // Word wrap against the panel width.
+    const wrap = (text, size) => {
+      ctx.font = size + 'px "Courier New", monospace';
+      const words = text.split(' ');
+      const out = [];
+      let cur = '';
+      const maxW = pw - 56;
+      for (const wd of words) {
+        const t = cur ? cur + ' ' + wd : wd;
+        if (!cur || ctx.measureText(t).width <= maxW) cur = t;
+        else { out.push(cur); cur = wd; }
+      }
+      if (cur) out.push(cur);
+      return out;
+    };
+
+    // Build the line list: version header, rule, then wrapped entries.
+    const lines = [];
+    for (const rel of CHANGELOG) {
+      lines.push({ text: 'V' + rel.v, color: CFG.colors.gold, size: 15, bold: true, lh: 24, tag: true });
+      lines.push({ text: rel.title, color: CFG.colors.uiDim, size: 12, bold: false, lh: 20 });
+      lines.push({ rule: true, lh: 14 });
+      for (const e of rel.entries) {
+        const wrapped = wrap(e, 13);
+        for (let k = 0; k < wrapped.length; k++) {
+          lines.push({ text: wrapped[k], color: CFG.colors.ui, size: 13, bold: false, lh: 19, dash: k === 0, cont: k > 0 });
+        }
+        lines.push({ text: '', size: 8, lh: 9 });
+      }
+      lines.push({ text: '', size: 10, lh: 14 });
+    }
+
+    let contentH = 0;
+    for (const ln of lines) contentH += ln.lh;
+    this.devlogScroll = clamp(this.devlogScroll, 0, Math.max(0, contentH - viewH));
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, top - 4, w, viewH + 8);
+    ctx.clip();
+    let yy = top - this.devlogScroll;
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const iy = yy;
+      yy += ln.lh;
+      if (iy + ln.lh < top - 10 || iy > bottom + 10) continue;
+      const s = this.st(i, 0.3, 0.012);
+      if (s.a <= 0.01) continue;
+      ctx.globalAlpha = s.a;
+      if (ln.rule) {
+        ctx.fillStyle = 'rgba(78,241,255,0.22)';
+        ctx.fillRect(x0 + 16, iy + ln.lh / 2, pw - 32, 1);
+      } else if (ln.text) {
+        const pre = ln.dash ? '- ' : (ln.cont ? '  ' : '');
+        drawText(ctx, pre + ln.text, x0 + 16, iy + ln.lh / 2 + s.oy, ln.size, ln.color, 'left', ln.bold);
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+
+    if (contentH > viewH) {
+      const trackX = x0 + pw + 10;
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(trackX, top, 5, viewH);
+      const thumbH = Math.max(24, viewH * viewH / contentH);
+      const thumbY = top + (viewH - thumbH) * (this.shopScroll / (contentH - viewH));
+      ctx.fillStyle = 'rgba(78,241,255,0.5)';
+      ctx.fillRect(trackX, thumbY, 5, thumbH);
+      drawText(ctx, 'SCROLL WITH MOUSE WHEEL OR DRAG', x0 + pw / 2, bottom + 14, 10, 'rgba(207,230,255,0.35)', 'center', false);
+    }
+    drawText(ctx, 'CLICK AN ITEM TO BUY   [ESC] BACK', w / 2, h - 24, 12, CFG.colors.uiDim, 'center', false);
+  },
+
+  // Settings -------------------------------------------------------
+  settingsItems: [],
+
+  drawSettings(dt) {
+    this.enterT += dt;
+    const w = this.vw(), h = this.vh();
+    ctx.fillStyle = '#04040c';
+    ctx.fillRect(0, 0, w, h);
+    const t0 = this.st(0, 0.4);
+    ctx.globalAlpha = t0.a;
+    drawText(ctx, 'SETTINGS', w / 2, h * 0.16 + t0.oy, 26, CFG.colors.ui, 'center', true);
+    ctx.globalAlpha = 1;
+    const s = Save.data.settings;
+    const items = [
+      'SFX VOLUME   ' + Math.round(s.sfx * 100) + '%',
+      'MUSIC VOLUME ' + Math.round(s.music * 100) + '%',
+      'SCREEN SHAKE ' + (s.shake > 0 ? 'ON' : 'OFF'),
+      'REDUCED MOTION ' + (s.reducedMotion ? 'ON' : 'OFF'),
+      'RESET SAVE DATA',
+      'BACK',
+    ];
+    this.hoverIndex = -1;
+    if (Game.mouseX !== undefined) {
+      for (let i = 0; i < items.length; i++) {
+        if (Game.inRect(Game.mouseX, Game.mouseY, w / 2 - 180, h * 0.32 + i * 50 - 16, 360, 32)) {
+          this.hoverIndex = i;
+        }
+      }
+    }
+    for (let i = 0; i < items.length; i++) {
+      const st = this.st(i + 1, 0.35);
+      const iy = h * 0.32 + i * 50 + st.oy;
+      if (st.a <= 0.01) continue;
+      const hovered = this.hoverIndex === i;
+      ctx.globalAlpha = st.a;
+      drawText(ctx, (hovered ? '> ' : '') + items[i], w / 2, iy, 16,
+        hovered ? CFG.colors.player : CFG.colors.ui, 'center', true);
+      ctx.globalAlpha = 1;
+    }
+    this.settingsItems = items;
+  },
+
+  // How to play ----------------------------------------------------
+  drawHowTo(dt) {
+    this.enterT += dt;
+    const w = this.vw(), h = this.vh();
+    ctx.fillStyle = '#04040c';
+    ctx.fillRect(0, 0, w, h);
+    const t0 = this.st(0, 0.4);
+    ctx.globalAlpha = t0.a;
+    drawText(ctx, 'HOW TO PLAY', w / 2, h * 0.12 + t0.oy, 26, CFG.colors.ui, 'center', true);
+    ctx.globalAlpha = 1;
+    const lines = [
+      'MOVE with WASD or the left stick.',
+      'AIM with the mouse or the right stick.',
+      'FIRE by holding click, or automatically with the right stick.',
+      'DASH with SPACE. You are invincible during a dash.',
+      '',
+      'Kill everything. Collect the blue gems to level up.',
+      'Each level: pick one of three upgrades. Build a run.',
+      'Every 5th wave a boss arrives. Learn its tells.',
+      'Elites are white-named. They hit harder and drop triple rewards.',
+      '',
+      'Credits carry between runs. Spend them on permanent upgrades.',
+      'The combo meter multiplies your score. Do not get hit.',
+    ];
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      const st = this.st(i + 1, 0.35, 0.05);
+      ctx.globalAlpha = st.a;
+      drawText(ctx, lines[i], w / 2, h * 0.2 + i * 30 + st.oy, 14, CFG.colors.ui, 'center', false);
+      ctx.globalAlpha = 1;
+    }
+    const t9 = this.st(13, 0.4, 0.15);
+    ctx.globalAlpha = t9.a;
+    drawText(ctx, 'CLICK OR PRESS ESC TO RETURN', w / 2, h - 40, 12, CFG.colors.uiDim, 'center', false);
+    ctx.globalAlpha = 1;
+  },
+
+  // Dev log: the shipped-change history, readable in game. ---------
+  devlogScroll: 0,
+
+  drawDevLog(dt) {
+    this.enterT += dt;
+    const w = this.vw(), h = this.vh();
+    ctx.fillStyle = '#04040c';
+    ctx.fillRect(0, 0, w, h);
+    const t0 = this.st(0, 0.4);
+    ctx.globalAlpha = t0.a;
+    drawText(ctx, 'DEV LOG', w / 2, 34 + t0.oy, 26, CFG.colors.ui, 'center', true);
+    drawText(ctx, 'EVERYTHING WE SHIPPED', w / 2, 60 + t0.oy, 12, CFG.colors.uiDim, 'center', false);
+    ctx.globalAlpha = 1;
+
     // Build the line list: version header + its entries.
     const lines = [];
     for (const rel of CHANGELOG) {

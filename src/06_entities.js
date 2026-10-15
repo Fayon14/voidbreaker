@@ -445,7 +445,7 @@ const Enemies = {
 
   init() {
     this.list = new Pool(() => ({
-      active: false, alive: false, type: '', x: 0, y: 0, vx: 0, vy: 0,
+      active: false, alive: false, type: '', x: 0, y: 0, vx: 0, vy: 0, kx: 0, ky: 0,
       r: 10, hp: 1, maxHp: 1, speed: 100, damage: 10, score: 10, xp: 1,
       mass: 1, color: '#fff', team: 1, t: 0, state: 'chase',
       timer: 0, fireT: 0, elite: null, flash: 0, slowT: 0,
@@ -715,7 +715,7 @@ const Enemies = {
 // Boss. Larger enemy with phases and telegraphed attacks.
 // ------------------------------------------------------------
 const Boss = {
-  active: false, x: 0, y: 0, vx: 0, vy: 0, r: 46,
+  active: false, x: 0, y: 0, vx: 0, vy: 0, kx: 0, ky: 0, r: 46,
   hp: 1, maxHp: 1, name: '', color: '#fff',
   def: null, phase: 1, t: 0, flash: 0,
   ringT: 0, dashT: 0, dashWind: 0, summonT: 0, spawnT: 0,

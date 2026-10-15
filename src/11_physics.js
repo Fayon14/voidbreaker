@@ -50,7 +50,7 @@ const Physics = {
     opts = opts || {};
     // Knockback decays exponentially, spring-like recovery.
     const kd = Math.exp(-(opts.knockDecay || 6.5) * dt);
-    b.kx *= kd; b.ky *= kd;
+    b.kx = (b.kx || 0) * kd; b.ky = (b.ky || 0) * kd;
     if (Math.abs(b.kx) < 2) b.kx = 0;
     if (Math.abs(b.ky) < 2) b.ky = 0;
 

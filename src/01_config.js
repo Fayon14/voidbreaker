@@ -5,7 +5,7 @@
 'use strict';
 
 const CFG = {
-  version: '1.1.0',
+  version: '1.1.1',
   saveKey: 'voidbreaker_save_v1',
 
   // Arena (world units). Camera follows the player inside these bounds.
@@ -309,22 +309,25 @@ function waveScale(n) {
 // Dev log: shipped changes, newest first. Rendered in-game.
 // ------------------------------------------------------------
 const CHANGELOG = [
+  { v: '1.1.1', title: 'SPAWN FIX + CLEANER LOG', entries: [
+    'Fixed a physics bug that erased every enemy the moment it spawned. Wave 1 fights back again.',
+    'Rebuilt this log with wrapped lines, clear version headers and room to breathe.',
+  ]},
   { v: '1.1.0', title: 'MOTION + PHYSICS OVERHAUL', entries: [
-    'Whole new physics engine: every ship, enemy and boss now runs on real acceleration, mass and bounce. Knockback rides its own impulse channel, obstacles push back, and fast shots sweep their path so they can no longer pass through small targets.',
-    'Crowds separate properly: enemies physically shove each other apart instead of stacking into one blob.',
-    'Every screen animates in and out: menus slide and fade, cards pop, and closing a screen gets the same smooth treatment.',
-    'New cinematic intro that plays on every launch: warp starfield, the void core forming and shattering, the title assembling letter by letter. Skip any time.',
-    'HUD rebuild: level, weapon and dash meter each get their own row. No more overlap.',
-    'The upgrades page resizes to your screen and scrolls, so text never gets cut off at the bottom.',
-    'Damage flashes and screen effects now show on menus too.',
-    'Settings from the pause menu now returns to the pause menu instead of dropping your run.',
-    'Added this dev log.',
+    'New physics engine. Ships, enemies and bosses carry real mass, bounce off walls, and take knockback on its own channel so it never fights their steering.',
+    'Fast shots sweep their path, so they can no longer pass straight through small targets.',
+    'Enemies shove each other apart instead of stacking into one blob.',
+    'Every screen animates in and out. Menus slide, cards pop, and closing gets the same care.',
+    'New cinematic intro on every launch: warp stars, the void core, the title assembling letter by letter. Skip any time.',
+    'HUD rebuilt. Level, weapon and dash meter each get their own row.',
+    'Shop and dev log scroll, so nothing gets cut off at the bottom.',
+    'Settings opened from pause now returns to pause instead of dropping your run.',
   ]},
   { v: '1.0.0', title: 'FIRST RELEASE', entries: [
-    'Wave survival roguelite: 9 enemy archetypes, 5 elite modifiers, bosses every 5 waves with phases and telegraphed attacks.',
+    'Wave survival roguelite. 9 enemy archetypes, 5 elite modifiers, bosses every 5 waves with phases and telegraphed attacks.',
     '4 weapons, 20 in-run upgrades, 8 permanent upgrades in the shop.',
-    'Fully procedural synthwave soundtrack and sound effects. No audio files.',
+    'Fully procedural synthwave soundtrack and effects. No audio files.',
     'Seeded arena generation, minimap, gem magnetism, touch controls.',
-    'Save data with best-run tracking, plus settings for volume, shake and reduced motion.',
+    'Saves with best-run tracking, plus volume, shake and reduced motion settings.',
   ]},
 ];
